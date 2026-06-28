@@ -1,108 +1,49 @@
-from file_uploader import upload_file
-import os
-import duckdb
-import pandas as pd
-
-print("upload the file that need to analyse")
-# file_path = upload_file()
-file_path = "C:/Users/karth/Downloads/fifa_world_cup_2026_player_performance.csv"
-file_type = os.path.splitext(file_path)[-1]
-
-
-conn = duckdb.connect()
-
-if file_type == ".csv":
-    df = pd.read_csv(file_path)
-if file_type == ".xlsx":
-    df = pd.read_excel(file_path)
-
-for col in df.select_dtypes(include = ['str']):
-    df[col] = df[col].astype(str).replace({r'"' : ""},regex = True)
-for col in df.columns:
-    if 'date' in col.lower():
-        df[col] = pd.to_datetime(df[col],errors = 'coerce')
-
-conn.register("uploaded_data",df)
-
-schema = "Table_Name : uploaded_data\ncolumns :\n"
-discription = conn.execute("DESCRIBE uploaded_data").fetchall()
-for col in discription:
-    schema = schema + f"   - {col[0]} ({col[1]})\n"
-
-from langchain.chat_models import init_chat_model
+from agents.executer_agent import sql_agent
+from agents.supervisor_agent import supervisor_agent
+from agents.visualizer_agent import visualize_agent
+from state import analyst_state
+from tools.sql_tools.query_executer import query_executer_tool
 from typing import TypedDict
-from langchain.messages import HumanMessage,SystemMessage
-from langgraph.graph import MessagesState
-llm = init_chat_model("groq:openai/gpt-oss-120b")
-
-
+from langchain.messages import HumanMessage
 from langgraph.graph import StateGraph,START,END
-
-from langchain.tools import tool
-
-@tool
-def query_executer(queries : list[str]) -> str:
-    """
-    execute the sql queries and returns the output
-    
-    Args : 
-        qurries : list,(description: sql query)
-    """
-    response = ""
-    for query in queries:
-        try:
-            response = response + f"{conn.execute(query).df()}\n"
-        except Exception as e:
-            response = response + f"QUERY: {query} \n ERROR: {e}"
-    return response
-tools = [query_executer]
-llm_with_tools = llm.bind_tools(tools)
-
-sys_prompt = """You are an expert in writing sql queries, you job is to change the user given 
-                natural language query into an list of error less SQL QUERIES or a single QUERY in a list.
-                here is the schema of the table you are dealing with 
-                SCHEMA: {schema}
-                
-                INSTRUCTIONS : 
-                1. you are allowed to use tools to complete user task.
-                2. once you get response from a tool call write the response in a professional natural language to the user.
-                """
-                
-
-class analyst_state(MessagesState):
-    pass
-
-def sql_agent(state : analyst_state):
-    sys_msg = sys_prompt.replace("{schema}",schema)
-    response = llm_with_tools.invoke([SystemMessage(sys_msg)]+ state["messages"])
-    return {"messages" : [response]}
-
-
-
 from langgraph.prebuilt import ToolNode,tools_condition
 from langgraph.graph import MessagesState
+from IPython.display import display,Image
+
+def route_desicion(state : analyst_state):
+    next = state['next']
+    if next.lower() == "finish":
+        return END
+    return next
 
 builder = StateGraph(analyst_state)
 
-builder.add_node("agent" , sql_agent)
-builder.add_node("tools",ToolNode(tools))
+builder.add_node("supervisor_agent" , supervisor_agent)
+builder.add_node("sql_agent" , sql_agent)
+builder.add_node("visualize_agent",visualize_agent)
+builder.add_node("tools",ToolNode(query_executer_tool))
 
-builder.add_edge(START,"agent")
-builder.add_conditional_edges("agent",tools_condition)
-builder.add_edge("tools","agent")
-builder.add_edge("agent",END)
-
+builder.add_edge(START,"supervisor_agent")
+builder.add_conditional_edges("supervisor_agent",route_desicion,["sql_agent","visualize_agent",END])
+builder.add_conditional_edges("sql_agent",tools_condition,{"tools" : "tools","__end__" : "supervisor_agent"})
+builder.add_edge("tools","sql_agent")
+builder.add_edge("visualize_agent","supervisor_agent")
 from langgraph.checkpoint.memory import MemorySaver
 memory = MemorySaver()
 graph = builder.compile(checkpointer = memory)
 
-config = {"configurable" : {"thread_id" : "2"}}
+config = {"configurable" : {"thread_id" : "000108"}}
 
-#####testing
-messages = graph.invoke({"messages" : [HumanMessage("who is most aged player?")]},config)
-for m in messages["messages"]:
-    m.pretty_print()
-    
-messages = graph.invoke({"messages" : [HumanMessage("now tell me his nationality and how many goals he shot")]},config)
-for m in messages["messages"]:
-    m.pretty_print()
+def main():
+    while True:
+        try:
+            humn_msg = input("user :")
+            for event in graph.stream({"messages" : [HumanMessage(humn_msg)]},config,stream_mode="values"):
+                event["messages"][-1].pretty_print()
+        except KeyboardInterrupt as e:
+            break
+        except Exception as e:
+            print(f"ERROR: {e}")
+
+if __name__ == "__main__":
+    main()
