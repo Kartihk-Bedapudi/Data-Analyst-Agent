@@ -17,4 +17,6 @@ __pycache__/
 # Logs
 *.log
 next.txt
-main.ipynb
+*.ipynb
+test.py
+graphs
