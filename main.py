@@ -1,6 +1,6 @@
+from agents.visualizer_agent import visualize_agent
 from agents.executer_agent import sql_agent
 from agents.supervisor_agent import supervisor_agent
-from agents.visualizer_agent import visualize_agent
 from state import analyst_state
 from tools.sql_tools.query_executer import query_executer_tool
 from typing import TypedDict
@@ -32,13 +32,15 @@ from langgraph.checkpoint.memory import MemorySaver
 memory = MemorySaver()
 graph = builder.compile(checkpointer = memory)
 
-config = {"configurable" : {"thread_id" : "000108"}}
+config = {"configurable" : {"thread_id" : "108"}}
 
 def main():
     while True:
         try:
-            humn_msg = input("user :")
-            for event in graph.stream({"messages" : [HumanMessage(humn_msg)]},config,stream_mode="values"):
+            humn_msg = input("user : ")
+            if humn_msg.lower() == "exit":
+                break
+            for event in graph.stream({"messages" : [HumanMessage(humn_msg)],"supervisor_memory" : f"user : {humn_msg}"},config,stream_mode="values"):
                 event["messages"][-1].pretty_print()
         except KeyboardInterrupt as e:
             break
