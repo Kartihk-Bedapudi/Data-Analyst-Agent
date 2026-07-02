@@ -20,7 +20,8 @@ def create_visualiser_tool(df):
         
         try:
             folder_creation = "\nfrom pathlib import Path\nsession_dir = Path('graphs/current_session')\nsession_dir.mkdir(exist_ok = True,parents = True)\n"
-            code = folder_creation + code + "\nplt.savefig(f'graphs/current_session/{file_name}.png')"
+            silencing_warning = "import matplotlib\nmatplotlib.use('Agg')\n"
+            code = folder_creation + silencing_warning + code + "\nplt.savefig(f'graphs/current_session/{file_name}.png')"
             hi = exec(code,tool_environment)
             return "code executed successfully."
         except NameError as e:
