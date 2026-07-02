@@ -11,12 +11,19 @@ sys_prompt = """
                     you have two workers:
                     
                     1. sql_agent description : (capable of writing and executing sql_queries.)
-                    2. visualize_agent description : (capable of writing and executing data visualization codes by it self in seaborn.) 
+                    2. visualize_agent description : (capable of writing by itself and executing data visualization codes by it self in seaborn.) 
                 
-                look at the user's request and conversation history:
+            ## Routing rules (CRITICAL) :
+             - Evaluate User request and current conversation history.
+             - if the user asks for a graph/chart, and it has not been created yet,just route to 'visualize_agent'.
+             - if the user asks for data/metrics, and it has not been created yet, route to 'sql_agent`.
+            
+            ## STOPPING CONDITION (READ CAREFULLY) :
+             - always look at very last MESSAGE in convorsation.
+             - if the last message is from worker or AI and it say's the workers job is successfully finished.
+             - and users request also finished then YOU MUST route to FINISH. Do not route to a worker if their task is already finished!
                     
-                    1. if a worker is needed, route to them.
-                    2. if user's request has been fulfilled by the workers, route to end.
+                
 
 """
 future = """and describe the users's request more precisely and effectively to get the maximum results.
@@ -31,6 +38,6 @@ llm = init_chat_model(model="groq:openai/gpt-oss-120b")
 supervisor_llm = llm.with_structured_output(desicion_schema)
 
 def supervisor_agent(state : analyst_state):
-    messages = state['messages']
-    response = supervisor_llm.invoke([SystemMessage(sys_prompt)] + messages)
-    return {"next" : f"{response.next}"}
+    convo = state['supervisor_memory']
+    response = supervisor_llm.invoke([SystemMessage(sys_prompt)] + [convo])
+    return {"next" : f"{response.next}", "messages" : f"{[response]}","supervisor_memory" : f"{convo} \nyou : {response.next}"}
